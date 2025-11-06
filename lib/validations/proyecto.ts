@@ -120,7 +120,7 @@ export const createProyectoSchema = z.object({
     .min(0, 'Las hectáreas no pueden ser negativas')
     .optional()
     .nullable(),
-  cantidad_iSeeds: z
+  cantidad_iseeds: z
     .number()
     .int('La cantidad debe ser un número entero')
     .min(0, 'La cantidad no puede ser negativa')
@@ -170,7 +170,7 @@ export const updateProyectoSchema = z.object({
     .min(0, 'Las hectáreas no pueden ser negativas')
     .optional()
     .nullable(),
-  cantidad_iSeeds: z
+  cantidad_iseeds: z
     .number()
     .int('La cantidad debe ser un número entero')
     .min(0, 'La cantidad no puede ser negativa')

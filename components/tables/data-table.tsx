@@ -98,6 +98,10 @@ export interface DataTableProps<TData, TValue> {
    * Clase CSS adicional para la tabla
    */
   className?: string
+  /**
+   * Callback cuando se hace click en una fila
+   */
+  onRowClick?: (row: TData) => void
 }
 
 // =====================================================
@@ -114,6 +118,7 @@ export function DataTable<TData, TValue>({
   searchColumn = 'nombre',
   emptyMessage = 'No hay resultados',
   className,
+  onRowClick,
 }: DataTableProps<TData, TValue>) {
   const [sorting, setSorting] = React.useState<SortingState>([])
   const [columnFilters, setColumnFilters] = React.useState<ColumnFiltersState>([])
@@ -281,7 +286,12 @@ export function DataTable<TData, TValue>({
             ) : table.getRowModel().rows?.length ? (
               // Filas con datos
               table.getRowModel().rows.map((row) => (
-                <TableRow key={row.id} data-state={row.getIsSelected() && 'selected'}>
+                <TableRow
+                  key={row.id}
+                  data-state={row.getIsSelected() && 'selected'}
+                  onClick={onRowClick ? () => onRowClick(row.original) : undefined}
+                  className={onRowClick ? 'cursor-pointer hover:bg-muted/50' : ''}
+                >
                   {row.getVisibleCells().map((cell) => (
                     <TableCell key={cell.id}>
                       {flexRender(cell.column.columnDef.cell, cell.getContext())}

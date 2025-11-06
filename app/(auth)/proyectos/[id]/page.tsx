@@ -7,7 +7,7 @@ import { Badge } from '@/components/ui/badge'
 import { ProyectoTabs } from '@/components/proyectos/ProyectoTabs'
 
 import { getProyecto } from '@/app/actions/proyectos'
-import { getRecetas } from '@/app/actions/recetas'
+import { getMixes } from '@/app/actions/mixes'
 
 // =====================================================
 // HELPER FUNCTIONS
@@ -52,10 +52,10 @@ export default async function ProyectoDetailPage({ params }: ProyectoDetailPageP
   // Next.js 15: await params
   const { id } = await params
 
-  // Fetch proyecto and recetas in parallel
-  const [proyectoResult, recetasResult] = await Promise.all([
+  // Fetch proyecto and mixes in parallel
+  const [proyectoResult, mixesResult] = await Promise.all([
     getProyecto(id),
-    getRecetas({ pageSize: 1000 }),
+    getMixes({ pageSize: 1000 }),
   ])
 
   // Handle proyecto not found
@@ -64,7 +64,7 @@ export default async function ProyectoDetailPage({ params }: ProyectoDetailPageP
   }
 
   const proyecto = proyectoResult.data
-  const recetas = recetasResult.success && recetasResult.data ? recetasResult.data.data : []
+  const mixes = mixesResult.success && mixesResult.data ? mixesResult.data.data : []
 
   const estadoVariant = getEstadoBadgeVariant(proyecto.estado_proyecto?.nombre)
 
@@ -106,7 +106,7 @@ export default async function ProyectoDetailPage({ params }: ProyectoDetailPageP
       </div>
 
       {/* Tabs */}
-      <ProyectoTabs proyecto={proyecto} recetas={recetas} />
+      <ProyectoTabs proyecto={proyecto} mixes={mixes} />
     </div>
   )
 }

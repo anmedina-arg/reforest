@@ -67,11 +67,6 @@ export async function getProyectos(
         estado_proyecto!proyecto_id_estado_proyecto_fkey(
           id_estado_proyecto,
           nombre
-        ),
-        mix:receta!proyecto_id_mix_fkey(
-          id_receta,
-          nombre,
-          descripcion
         )
       `,
         { count: 'exact' }
@@ -150,7 +145,7 @@ export async function getProyectos(
  * Obtiene un proyecto específico por su ID con todas sus relaciones
  *
  * @param id - UUID del proyecto
- * @returns Proyecto con sus relaciones: cliente, eco_region, estado, mix
+ * @returns Proyecto con sus relaciones: cliente, eco_region, estado, mix (receta)
  */
 export async function getProyecto(
   id: string
@@ -165,6 +160,7 @@ export async function getProyecto(
 
     const supabase = await createClient()
 
+    // Obtener proyecto con relaciones directas
     const { data, error } = await supabase
       .from('proyecto')
       .select(
@@ -184,12 +180,6 @@ export async function getProyecto(
         estado_proyecto!proyecto_id_estado_proyecto_fkey(
           id_estado_proyecto,
           nombre
-        ),
-        mix:receta!proyecto_id_mix_fkey(
-          id_receta,
-          nombre,
-          descripcion,
-          autor
         )
       `
       )
@@ -212,9 +202,57 @@ export async function getProyecto(
       }
     }
 
+    // Si el proyecto tiene id_mix, obtener el mix con sus recetas
+    let mixWithRecetas = null
+    if (data.id_mix) {
+      // Obtener datos del mix
+      const { data: mixData, error: mixError } = await supabase
+        .from('mix_iseeds')
+        .select('*')
+        .eq('id_mix', data.id_mix)
+        .is('deleted_at', null)
+        .single()
+
+      if (!mixError && mixData) {
+        // Obtener recetas del mix a través de mix_recetas
+        const { data: mixRecetasData, error: recetasError } = await supabase
+          .from('mix_recetas')
+          .select(
+            `
+            cantidad_iseeds,
+            receta!mix_recetas_id_receta_fkey(
+              id_receta,
+              nombre,
+              descripcion
+            )
+          `
+          )
+          .eq('id_mix', data.id_mix)
+          .is('deleted_at', null)
+
+        // Construir el mix completo con sus recetas
+        mixWithRecetas = {
+          ...mixData,
+          recetas:
+            mixRecetasData?.map((mr: any) => ({
+              id_receta: mr.receta.id_receta,
+              nombre: mr.receta.nombre,
+              descripcion: mr.receta.descripcion,
+              cantidad_iseeds: mr.cantidad_iseeds,
+            })) || [],
+        }
+      }
+    }
+
+    // Combinar datos
+    const proyecto = {
+      ...data,
+      mix: mixWithRecetas,
+    }
+
     return {
       success: true,
-      data,
+      data: proyecto,
     }
   } catch (error) {
     console.error('Error en getProyecto:', error)
@@ -268,7 +306,7 @@ export async function createProyecto(
         id_estado_proyecto: validatedData.id_estado_proyecto || null,
         id_mix: validatedData.id_mix || null,
         hectareas: validatedData.hectareas || null,
-        cantidad_iSeeds: validatedData.cantidad_iSeeds || null,
+        cantidad_iseeds: validatedData.cantidad_iseeds || null,
         poligonos_entregados: validatedData.poligonos_entregados || false,
       })
       .select()
@@ -558,9 +596,13 @@ export async function cambiarEstado(
 // =====================================================
 
 /**
- * Asigna una receta (mix) a un proyecto
+ * Asigna una receta a un proyecto creando un mix simple
  *
- * @param input - ID del proyecto e ID de la receta
+ * IMPORTANTE: El parámetro id_mix contiene el id_receta.
+ * Esta función busca o crea un mix que contenga SOLO esa receta
+ * y lo asigna al proyecto.
+ *
+ * @param input - ID del proyecto e ID de la receta (en campo id_mix)
  * @returns Proyecto actualizado
  */
 export async function asignarReceta(
@@ -579,13 +621,14 @@ export async function asignarReceta(
     }
 
     const validatedData = validation.data
+    const idReceta = validatedData.id_mix // Este campo contiene el id_receta
 
     const supabase = await createClient()
 
     // Verificar que el proyecto existe
     const { data: existingProyecto, error: checkError } = await supabase
       .from('proyecto')
-      .select('id_proyecto')
+      .select('id_proyecto, nombre_del_proyecto')
       .eq('id_proyecto', validatedData.id_proyecto)
       .is('deleted_at', null)
       .single()
@@ -600,8 +643,8 @@ export async function asignarReceta(
     // Verificar que la receta existe
     const { data: existingReceta, error: recetaError } = await supabase
       .from('receta')
-      .select('id_receta')
-      .eq('id_receta', validatedData.id_mix)
+      .select('id_receta, nombre')
+      .eq('id_receta', idReceta)
       .is('deleted_at', null)
       .single()
 
@@ -612,17 +655,82 @@ export async function asignarReceta(
       }
     }
 
-    // Asignar la receta al proyecto
+    // Buscar si existe un mix que contenga SOLO esta receta
+    // (buscamos mixes con nombre que coincida con la receta)
+    const { data: existingMixes, error: mixSearchError } = await supabase
+      .from('mix_recetas')
+      .select('id_mix')
+      .eq('id_receta', idReceta)
+      .is('deleted_at', null)
+
+    let idMix: string | null = null
+
+    // Verificar si alguno de estos mixes contiene SOLO esta receta
+    if (existingMixes && existingMixes.length > 0) {
+      for (const mixRel of existingMixes) {
+        const { data: recetasCount } = await supabase
+          .from('mix_recetas')
+          .select('id_receta', { count: 'exact', head: true })
+          .eq('id_mix', mixRel.id_mix)
+          .is('deleted_at', null)
+
+        // Si encontramos un mix con solo 1 receta, lo usamos
+        if (recetasCount === null || recetasCount.length === 1) {
+          idMix = mixRel.id_mix
+          break
+        }
+      }
+    }
+
+    // Si no existe, crear un nuevo mix
+    if (!idMix) {
+      // Crear el mix
+      const { data: newMix, error: createMixError } = await supabase
+        .from('mix_iseeds')
+        .insert({
+          nombre: `Mix - ${existingReceta.nombre}`,
+          descripcion: `Mix generado automáticamente para proyecto: ${existingProyecto.nombre_del_proyecto}`,
+        })
+        .select('id_mix')
+        .single()
+
+      if (createMixError || !newMix) {
+        console.error('Error creando mix_iseeds:', createMixError)
+        return {
+          success: false,
+          error: 'Error al crear el mix de semillas',
+        }
+      }
+
+      idMix = newMix.id_mix
+
+      // Crear la relación mix_recetas
+      const { error: createRelError } = await supabase.from('mix_recetas').insert({
+        id_mix: idMix,
+        id_receta: idReceta,
+        cantidad_iseeds: 0, // Se puede actualizar después
+      })
+
+      if (createRelError) {
+        console.error('Error creando relación mix_recetas:', createRelError)
+        return {
+          success: false,
+          error: 'Error al asociar receta con el mix',
+        }
+      }
+    }
+
+    // Asignar el mix al proyecto
     const { error: updateError } = await supabase
       .from('proyecto')
       .update({
-        id_mix: validatedData.id_mix,
+        id_mix: idMix,
         updated_at: new Date().toISOString(),
       })
       .eq('id_proyecto', validatedData.id_proyecto)
 
     if (updateError) {
-      console.error('Error asignando receta al proyecto:', updateError)
+      console.error('Error asignando mix al proyecto:', updateError)
       return {
         success: false,
         error: `Error al asignar receta: ${updateError.message}`,
@@ -641,6 +749,7 @@ export async function asignarReceta(
 
     // Revalidar la ruta de proyectos
     revalidatePath('/proyectos')
+    revalidatePath(`/proyectos/${validatedData.id_proyecto}`)
 
     return {
       success: true,

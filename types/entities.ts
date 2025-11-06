@@ -215,6 +215,84 @@ export interface RecetaFilters {
 }
 
 // =====================================================
+// MIX DE ISEEDS
+// =====================================================
+
+export interface MixISeeds {
+  id_mix: UUID
+  nombre: string
+  descripcion: string | null
+  created_at: string
+  updated_at: string
+  deleted_at: string | null
+}
+
+// =====================================================
+// TABLA INTERMEDIA - MIX_RECETAS
+// =====================================================
+
+export interface MixRecetas {
+  id_mix: UUID
+  id_receta: UUID
+  cantidad_iseeds: number
+  created_at: string
+  updated_at: string
+  deleted_at: string | null
+}
+
+/**
+ * Receta dentro de un mix con cantidad de iSeeds
+ */
+export interface RecetaEnMix {
+  id_receta: UUID
+  nombre: string
+  descripcion: string | null
+  cantidad_iseeds: number
+}
+
+/**
+ * Mix completo con array de recetas + cantidades
+ */
+export interface MixWithRecetas extends MixISeeds {
+  recetas: RecetaEnMix[]
+}
+
+// =====================================================
+// INPUTS PARA MIX DE ISEEDS
+// =====================================================
+
+export interface CreateMixInput {
+  nombre: string
+  descripcion?: string | null
+  recetas: Array<{
+    id_receta: UUID
+    cantidad_iseeds: number
+  }>
+}
+
+export interface UpdateMixInput {
+  nombre?: string
+  descripcion?: string | null
+}
+
+export interface AgregarRecetaAMixInput {
+  id_mix: UUID
+  id_receta: UUID
+  cantidad_iseeds: number
+}
+
+export interface RemoverRecetaDeMixInput {
+  id_mix: UUID
+  id_receta: UUID
+}
+
+export interface MixFilters {
+  search?: string
+  page?: number
+  pageSize?: number
+}
+
+// =====================================================
 // CLIENTES
 // =====================================================
 
@@ -264,7 +342,7 @@ export interface Proyecto {
   id_mix: UUID | null
   hectareas: number | null
   id_eco_region: UUID | null
-  cantidad_iSeeds: number | null
+  cantidad_iseeds: number | null
   id_estado_proyecto: UUID | null
   poligonos_entregados: boolean
   created_at: string
@@ -279,7 +357,7 @@ export interface ProyectoWithRelations extends Proyecto {
   cliente?: Cliente | null
   eco_region?: EcoRegion | null
   estado_proyecto?: EstadoProyecto | null
-  mix?: Receta | null
+  mix?: MixWithRecetas | null
 }
 
 // =====================================================
@@ -321,7 +399,7 @@ export interface CreateProyectoInput {
   id_estado_proyecto?: UUID | null
   id_mix?: UUID | null
   hectareas?: number | null
-  cantidad_iSeeds?: number | null
+  cantidad_iseeds?: number | null
   poligonos_entregados?: boolean
 }
 
@@ -336,7 +414,7 @@ export interface UpdateProyectoInput {
   id_estado_proyecto?: UUID | null
   id_mix?: UUID | null
   hectareas?: number | null
-  cantidad_iSeeds?: number | null
+  cantidad_iseeds?: number | null
   poligonos_entregados?: boolean
 }
 

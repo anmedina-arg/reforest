@@ -83,7 +83,7 @@ export function ProyectoDialog({
       id_eco_region: '',
       id_estado_proyecto: '',
       hectareas: undefined,
-      cantidad_iSeeds: undefined,
+      cantidad_iseeds: undefined,
       poligonos_entregados: false,
     },
   })
@@ -110,7 +110,7 @@ export function ProyectoDialog({
         id_eco_region: values.id_eco_region || null,
         id_estado_proyecto: values.id_estado_proyecto || null,
         hectareas: values.hectareas ? Number(values.hectareas) : null,
-        cantidad_iSeeds: values.cantidad_iSeeds ? Number(values.cantidad_iSeeds) : null,
+        cantidad_iseeds: values.cantidad_iseeds ? Number(values.cantidad_iseeds) : null,
       }
 
       const result = await createProyecto(data)
@@ -365,7 +365,7 @@ export function ProyectoDialog({
 
               <FormField
                 control={form.control}
-                name="cantidad_iSeeds"
+                name="cantidad_iseeds"
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Cantidad iSeeds</FormLabel>

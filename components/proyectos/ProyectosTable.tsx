@@ -270,7 +270,7 @@ export function ProyectosTable({
       <DataTable
         columns={columns}
         data={filteredData}
-        searchKey="nombre_del_proyecto"
+        searchColumn="nombre_del_proyecto"
         onRowClick={(row) => router.push(`/proyectos/${row.id_proyecto}`)}
       />
 

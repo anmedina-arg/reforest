@@ -11,8 +11,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Badge } from '@/components/ui/badge'
 import { Separator } from '@/components/ui/separator'
 
-import { AsignarRecetaDialog } from './AsignarRecetaDialog'
-import type { ProyectoWithRelations, RecetaWithRelations } from '@/types/entities'
+import { AsignarMixDialog } from './AsignarMixDialog'
+import type { ProyectoWithRelations, MixISeeds } from '@/types/entities'
 
 // =====================================================
 // TYPES
@@ -20,7 +20,7 @@ import type { ProyectoWithRelations, RecetaWithRelations } from '@/types/entitie
 
 interface ProyectoTabsProps {
   proyecto: ProyectoWithRelations
-  recetas: RecetaWithRelations[]
+  mixes: Array<MixISeeds & { recetas_count: number }>
 }
 
 // =====================================================
@@ -40,8 +40,8 @@ function formatFecha(fecha: string | null): string {
 // COMPONENT
 // =====================================================
 
-export function ProyectoTabs({ proyecto, recetas }: ProyectoTabsProps) {
-  const [asignarRecetaOpen, setAsignarRecetaOpen] = useState(false)
+export function ProyectoTabs({ proyecto, mixes }: ProyectoTabsProps) {
+  const [asignarMixOpen, setAsignarMixOpen] = useState(false)
 
   return (
     <>
@@ -128,8 +128,8 @@ export function ProyectoTabs({ proyecto, recetas }: ProyectoTabsProps) {
                     Cantidad iSeeds
                   </label>
                   <p className="text-base mt-1">
-                    {proyecto.cantidad_iSeeds !== null && proyecto.cantidad_iSeeds !== undefined
-                      ? proyecto.cantidad_iSeeds.toLocaleString()
+                    {proyecto.cantidad_iseeds !== null && proyecto.cantidad_iseeds !== undefined
+                      ? proyecto.cantidad_iseeds.toLocaleString()
                       : '-'}
                   </p>
                 </div>
@@ -215,18 +215,19 @@ export function ProyectoTabs({ proyecto, recetas }: ProyectoTabsProps) {
             </CardContent>
           </Card>
 
-          {/* Receta (Mix) */}
+          {/* Mix de Recetas */}
           <Card>
             <CardHeader>
-              <CardTitle>Receta Asignada</CardTitle>
-              <CardDescription>Mix de semillas utilizado en el proyecto</CardDescription>
+              <CardTitle>Mix de Semillas Asignado</CardTitle>
+              <CardDescription>Mezcla de recetas utilizada en el proyecto</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               {proyecto.mix ? (
-                <div className="space-y-3">
+                <div className="space-y-4">
+                  {/* Nombre y descripción del mix */}
                   <div>
                     <label className="text-sm font-medium text-muted-foreground">
-                      Nombre de la Receta
+                      Nombre del Mix
                     </label>
                     <p className="text-base font-medium mt-1">{proyecto.mix.nombre}</p>
                   </div>
@@ -240,14 +241,53 @@ export function ProyectoTabs({ proyecto, recetas }: ProyectoTabsProps) {
                     </div>
                   )}
 
-                  <Button onClick={() => setAsignarRecetaOpen(true)} variant="outline" size="sm">
-                    Cambiar Receta
+                  <Separator />
+
+                  {/* Lista de recetas en el mix */}
+                  <div>
+                    <label className="text-sm font-medium text-muted-foreground mb-2 block">
+                      Recetas ({proyecto.mix.recetas?.length || 0})
+                    </label>
+                    {proyecto.mix.recetas && proyecto.mix.recetas.length > 0 ? (
+                      <div className="space-y-2">
+                        {proyecto.mix.recetas.map((receta) => (
+                          <div
+                            key={receta.id_receta}
+                            className="flex items-center justify-between p-3 border rounded-lg"
+                          >
+                            <div>
+                              <p className="font-medium">{receta.nombre}</p>
+                              {receta.descripcion && (
+                                <p className="text-sm text-muted-foreground">
+                                  {receta.descripcion}
+                                </p>
+                              )}
+                            </div>
+                            <div className="text-right">
+                              <Badge variant="secondary">
+                                {receta.cantidad_iseeds.toLocaleString()} iSeeds
+                              </Badge>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-sm text-muted-foreground">
+                        No hay recetas en este mix
+                      </p>
+                    )}
+                  </div>
+
+                  <Separator />
+
+                  <Button onClick={() => setAsignarMixOpen(true)} variant="outline" size="sm">
+                    Cambiar Mix
                   </Button>
                 </div>
               ) : (
                 <div className="text-center py-6">
-                  <p className="text-muted-foreground mb-4">No hay receta asignada</p>
-                  <Button onClick={() => setAsignarRecetaOpen(true)}>Asignar Receta</Button>
+                  <p className="text-muted-foreground mb-4">No hay mix asignado</p>
+                  <Button onClick={() => setAsignarMixOpen(true)}>Asignar Mix</Button>
                 </div>
               )}
             </CardContent>
@@ -266,9 +306,9 @@ export function ProyectoTabs({ proyecto, recetas }: ProyectoTabsProps) {
                 <div className="text-center py-12">
                   <Package className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
                   <p className="text-muted-foreground mb-4">
-                    Para iniciar la producción, primero debes asignar una receta al proyecto
+                    Para iniciar la producción, primero debes asignar un mix al proyecto
                   </p>
-                  <Button onClick={() => setAsignarRecetaOpen(true)}>Asignar Receta</Button>
+                  <Button onClick={() => setAsignarMixOpen(true)}>Asignar Mix</Button>
                 </div>
               ) : (
                 <div className="text-center py-12">
@@ -286,13 +326,13 @@ export function ProyectoTabs({ proyecto, recetas }: ProyectoTabsProps) {
         </TabsContent>
       </Tabs>
 
-      {/* Dialog para asignar receta */}
-      <AsignarRecetaDialog
-        open={asignarRecetaOpen}
-        onOpenChange={setAsignarRecetaOpen}
+      {/* Dialog para asignar mix */}
+      <AsignarMixDialog
+        open={asignarMixOpen}
+        onOpenChange={setAsignarMixOpen}
         proyectoId={proyecto.id_proyecto}
-        recetaActual={proyecto.mix}
-        recetas={recetas}
+        mixActual={proyecto.mix}
+        mixes={mixes}
       />
     </>
   )
