@@ -18,18 +18,15 @@ export const createMixSchema = z.object({
     .max(255, 'El nombre no puede exceder 255 caracteres')
     .trim(),
   descripcion: z.string().max(1000, 'La descripción no puede exceder 1000 caracteres').optional().nullable(),
-  recetas: z
-    .array(
-      z.object({
-        id_receta: uuidSchema,
-        cantidad_iseeds: z
-          .number()
-          .int('La cantidad debe ser un número entero')
-          .min(0, 'La cantidad no puede ser negativa'),
-      })
-    )
-    .optional()
-    .default([]),
+  recetas: z.array(
+    z.object({
+      id_receta: uuidSchema,
+      cantidad_iseeds: z
+        .number()
+        .int('La cantidad debe ser un número entero')
+        .min(0, 'La cantidad no puede ser negativa'),
+    })
+  ),
 })
 
 export type CreateMixInput = z.infer<typeof createMixSchema>

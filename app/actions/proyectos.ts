@@ -773,15 +773,13 @@ export async function asignarReceta(
  *
  * @returns Lista de estados
  */
-export async function getEstadosProyecto(): Promise<
-  ActionResponse<{ id_estado_proyecto: string; nombre: string }[]>
-> {
+export async function getEstadosProyecto() {
   try {
     const supabase = await createClient()
 
     const { data, error } = await supabase
       .from('estado_proyecto')
-      .select('id_estado_proyecto, nombre')
+      .select('*')
       .is('deleted_at', null)
       .order('nombre', { ascending: true })
 
@@ -811,15 +809,13 @@ export async function getEstadosProyecto(): Promise<
  *
  * @returns Lista de eco-regiones
  */
-export async function getEcoRegiones(): Promise<
-  ActionResponse<{ id_eco_region: string; nombre: string }[]>
-> {
+export async function getEcoRegiones() {
   try {
     const supabase = await createClient()
 
     const { data, error } = await supabase
       .from('eco_region')
-      .select('id_eco_region, nombre')
+      .select('*')
       .is('deleted_at', null)
       .order('nombre', { ascending: true })
 

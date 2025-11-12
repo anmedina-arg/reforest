@@ -3,16 +3,35 @@
 import { useState } from 'react'
 import { format } from 'date-fns'
 import { es } from 'date-fns/locale'
-import { Mail, Phone, User, Calendar, MapPin, Sprout, Package } from 'lucide-react'
+import { Mail, Phone, User, Calendar, MapPin, Sprout, Package, TrendingUp, History, Loader2 } from 'lucide-react'
+import { toast } from 'sonner'
 
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Badge } from '@/components/ui/badge'
 import { Separator } from '@/components/ui/separator'
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table'
 
 import { AsignarMixDialog } from './AsignarMixDialog'
-import type { ProyectoWithRelations, MixISeeds } from '@/types/entities'
+import { NuevaProduccionDialog } from './NuevaProduccionDialog'
+import { ProduccionesTable } from './ProduccionesTable'
+import { RegistrarConsumoDialog } from './RegistrarConsumoDialog'
+import { getDisponibilidadesByProduccion } from '@/app/actions/disponibilidad'
+import type {
+  ProyectoWithRelations,
+  MixISeeds,
+  ProduccionWithRelations,
+  ConsumoWithRelations,
+  DisponibilidadWithConsumo,
+} from '@/types/entities'
 
 // =====================================================
 // TYPES
@@ -21,6 +40,9 @@ import type { ProyectoWithRelations, MixISeeds } from '@/types/entities'
 interface ProyectoTabsProps {
   proyecto: ProyectoWithRelations
   mixes: Array<MixISeeds & { recetas_count: number }>
+  producciones: ProduccionWithRelations[]
+  disponibilidadTotal: number
+  consumos: ConsumoWithRelations[]
 }
 
 // =====================================================
@@ -40,8 +62,54 @@ function formatFecha(fecha: string | null): string {
 // COMPONENT
 // =====================================================
 
-export function ProyectoTabs({ proyecto, mixes }: ProyectoTabsProps) {
+export function ProyectoTabs({
+  proyecto,
+  mixes,
+  producciones,
+  disponibilidadTotal,
+  consumos,
+}: ProyectoTabsProps) {
   const [asignarMixOpen, setAsignarMixOpen] = useState(false)
+  const [nuevaProduccionOpen, setNuevaProduccionOpen] = useState(false)
+  const [registrarConsumoOpen, setRegistrarConsumoOpen] = useState(false)
+  const [disponibilidadesSeleccionadas, setDisponibilidadesSeleccionadas] = useState<
+    DisponibilidadWithConsumo[]
+  >([])
+  const [isLoadingDisponibilidades, setIsLoadingDisponibilidades] = useState(false)
+
+  // Obtener producciones completadas
+  const produccionesCompletadas = producciones.filter((p) =>
+    p.estado_produccion?.nombre?.toLowerCase().includes('completada')
+  )
+
+  // Handler para abrir el dialog de registrar consumo
+  async function handleAbrirRegistrarConsumo() {
+    setIsLoadingDisponibilidades(true)
+
+    try {
+      // Obtener todas las disponibilidades de todas las producciones completadas
+      const disponibilidadesPromises = produccionesCompletadas.map((p) =>
+        getDisponibilidadesByProduccion({ id_produccion: p.id_produccion })
+      )
+
+      const results = await Promise.all(disponibilidadesPromises)
+
+      // Combinar todas las disponibilidades en un solo array
+      const todasDisponibilidades: DisponibilidadWithConsumo[] = []
+      results.forEach((result) => {
+        if (result.success && result.data) {
+          todasDisponibilidades.push(...result.data)
+        }
+      })
+
+      setDisponibilidadesSeleccionadas(todasDisponibilidades)
+      setRegistrarConsumoOpen(true)
+    } catch (error) {
+      toast.error('Error al obtener disponibilidades')
+    } finally {
+      setIsLoadingDisponibilidades(false)
+    }
+  }
 
   return (
     <>
@@ -296,10 +364,72 @@ export function ProyectoTabs({ proyecto, mixes }: ProyectoTabsProps) {
 
         {/* ==================== TAB PRODUCCIÓN ==================== */}
         <TabsContent value="produccion" className="space-y-6">
+          {/* DISPONIBILIDAD TOTAL - Card destacado */}
+          <Card className="border-2 border-primary/20 bg-gradient-to-r from-primary/5 to-primary/10">
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="p-3 rounded-lg bg-primary/10">
+                    <TrendingUp className="h-6 w-6 text-primary" />
+                  </div>
+                  <div>
+                    <CardTitle className="text-2xl">Disponibilidad Total</CardTitle>
+                    <CardDescription>iSeeds disponibles para consumo</CardDescription>
+                  </div>
+                </div>
+                <div className="text-right">
+                  <p className="text-4xl font-bold text-primary">
+                    {disponibilidadTotal.toLocaleString()}
+                  </p>
+                  <div className="mt-2">
+                    <Badge
+                      variant={disponibilidadTotal > 0 ? 'success' : 'destructive'}
+                      className="text-sm"
+                    >
+                      {disponibilidadTotal > 0 ? 'Stock Disponible' : 'Sin Stock'}
+                    </Badge>
+                  </div>
+                </div>
+              </div>
+            </CardHeader>
+            {produccionesCompletadas.length > 0 && (
+              <CardContent>
+                <Button
+                  onClick={handleAbrirRegistrarConsumo}
+                  disabled={isLoadingDisponibilidades || disponibilidadTotal === 0}
+                  className="w-full sm:w-auto"
+                >
+                  {isLoadingDisponibilidades ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Cargando...
+                    </>
+                  ) : (
+                    <>
+                      <Package className="mr-2 h-4 w-4" />
+                      Registrar Consumo
+                    </>
+                  )}
+                </Button>
+              </CardContent>
+            )}
+          </Card>
+
+          {/* HISTORIAL DE PRODUCCIONES */}
           <Card>
             <CardHeader>
-              <CardTitle>Producción</CardTitle>
-              <CardDescription>Historial de producción del proyecto</CardDescription>
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle>Producción</CardTitle>
+                  <CardDescription>Historial de producción del proyecto</CardDescription>
+                </div>
+                {proyecto.mix && proyecto.mix.recetas && proyecto.mix.recetas.length > 0 && (
+                  <Button onClick={() => setNuevaProduccionOpen(true)}>
+                    <Package className="mr-2 h-4 w-4" />
+                    Nueva Producción
+                  </Button>
+                )}
+              </div>
             </CardHeader>
             <CardContent>
               {!proyecto.mix ? (
@@ -310,19 +440,83 @@ export function ProyectoTabs({ proyecto, mixes }: ProyectoTabsProps) {
                   </p>
                   <Button onClick={() => setAsignarMixOpen(true)}>Asignar Mix</Button>
                 </div>
-              ) : (
+              ) : producciones.length === 0 ? (
                 <div className="text-center py-12">
                   <Package className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-                  <p className="text-muted-foreground">
+                  <p className="text-muted-foreground mb-4">
                     No hay producciones registradas para este proyecto
                   </p>
-                  <p className="text-sm text-muted-foreground mt-2">
-                    La funcionalidad de producción estará disponible próximamente
-                  </p>
+                  <Button onClick={() => setNuevaProduccionOpen(true)}>
+                    Crear Primera Producción
+                  </Button>
                 </div>
+              ) : (
+                <ProduccionesTable producciones={producciones} />
               )}
             </CardContent>
           </Card>
+
+          {/* HISTORIAL DE CONSUMOS */}
+          {consumos.length > 0 && (
+            <Card>
+              <CardHeader>
+                <div className="flex items-center gap-3">
+                  <History className="h-5 w-5 text-muted-foreground" />
+                  <div>
+                    <CardTitle>Historial de Consumos</CardTitle>
+                    <CardDescription>
+                      Registro de consumos de iSeeds en el proyecto
+                    </CardDescription>
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent>
+                <div className="rounded-md border">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Fecha</TableHead>
+                        <TableHead>Cantidad Consumida</TableHead>
+                        <TableHead>Fecha Producción Origen</TableHead>
+                        <TableHead>Disponible Restante</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {consumos.map((consumo) => (
+                        <TableRow key={consumo.id_consumo}>
+                          <TableCell>{formatFecha(consumo.fecha_consumo)}</TableCell>
+                          <TableCell>
+                            <Badge variant="secondary">
+                              {consumo.cantidad_consumida?.toLocaleString() || 0} iSeeds
+                            </Badge>
+                          </TableCell>
+                          <TableCell>
+                            {formatFecha(consumo.disponibilidad?.fecha_produccion || null)}
+                          </TableCell>
+                          <TableCell>
+                            {consumo.disponibilidad ? (
+                              <Badge
+                                variant={
+                                  consumo.disponibilidad.cantidad_disponible > 0
+                                    ? 'success'
+                                    : 'secondary'
+                                }
+                              >
+                                {consumo.disponibilidad.cantidad_disponible.toLocaleString()}{' '}
+                                iSeeds
+                              </Badge>
+                            ) : (
+                              '-'
+                            )}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              </CardContent>
+            </Card>
+          )}
         </TabsContent>
       </Tabs>
 
@@ -333,6 +527,24 @@ export function ProyectoTabs({ proyecto, mixes }: ProyectoTabsProps) {
         proyectoId={proyecto.id_proyecto}
         mixActual={proyecto.mix}
         mixes={mixes}
+      />
+
+      {/* Dialog para nueva producción */}
+      {proyecto.mix && proyecto.mix.recetas && (
+        <NuevaProduccionDialog
+          open={nuevaProduccionOpen}
+          onOpenChange={setNuevaProduccionOpen}
+          proyectoId={proyecto.id_proyecto}
+          recetas={proyecto.mix.recetas}
+        />
+      )}
+
+      {/* Dialog para registrar consumo */}
+      <RegistrarConsumoDialog
+        open={registrarConsumoOpen}
+        onOpenChange={setRegistrarConsumoOpen}
+        proyectoId={proyecto.id_proyecto}
+        disponibilidades={disponibilidadesSeleccionadas}
       />
     </>
   )
