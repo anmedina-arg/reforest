@@ -8,6 +8,8 @@ import { ProyectoTabs } from '@/components/proyectos/ProyectoTabs'
 
 import { getProyecto } from '@/app/actions/proyectos'
 import { getMixes } from '@/app/actions/mixes'
+import { getProduccionesByProyecto } from '@/app/actions/produccion'
+import { getDisponibilidadTotal, getConsumosDelProyecto } from '@/app/actions/disponibilidad'
 
 // =====================================================
 // HELPER FUNCTIONS
@@ -52,11 +54,15 @@ export default async function ProyectoDetailPage({ params }: ProyectoDetailPageP
   // Next.js 15: await params
   const { id } = await params
 
-  // Fetch proyecto and mixes in parallel
-  const [proyectoResult, mixesResult] = await Promise.all([
-    getProyecto(id),
-    getMixes({ pageSize: 1000 }),
-  ])
+  // Fetch proyecto, mixes, producciones, disponibilidad and consumos in parallel
+  const [proyectoResult, mixesResult, produccionesResult, disponibilidadResult, consumosResult] =
+    await Promise.all([
+      getProyecto(id),
+      getMixes({ page: 1, pageSize: 1000 }),
+      getProduccionesByProyecto(id, { page: 1, pageSize: 1000 }),
+      getDisponibilidadTotal({ id_proyecto: id }),
+      getConsumosDelProyecto({ id_proyecto: id }),
+    ])
 
   // Handle proyecto not found
   if (!proyectoResult.success || !proyectoResult.data) {
@@ -65,6 +71,14 @@ export default async function ProyectoDetailPage({ params }: ProyectoDetailPageP
 
   const proyecto = proyectoResult.data
   const mixes = mixesResult.success && mixesResult.data ? mixesResult.data.data : []
+  const producciones =
+    produccionesResult.success && produccionesResult.data ? produccionesResult.data.data : []
+  const disponibilidadTotal =
+    disponibilidadResult.success && disponibilidadResult.data
+      ? disponibilidadResult.data.total
+      : 0
+  const consumos =
+    consumosResult.success && consumosResult.data ? consumosResult.data : []
 
   const estadoVariant = getEstadoBadgeVariant(proyecto.estado_proyecto?.nombre)
 
@@ -106,7 +120,13 @@ export default async function ProyectoDetailPage({ params }: ProyectoDetailPageP
       </div>
 
       {/* Tabs */}
-      <ProyectoTabs proyecto={proyecto} mixes={mixes} />
+      <ProyectoTabs
+        proyecto={proyecto}
+        mixes={mixes}
+        producciones={producciones}
+        disponibilidadTotal={disponibilidadTotal}
+        consumos={consumos}
+      />
     </div>
   )
 }

@@ -138,7 +138,7 @@ export interface Receta {
 /**
  * Receta con relaciones básicas (autor y count de insumos)
  */
-export interface RecetaWithRelations extends Receta {
+export interface RecetaWithRelations extends Omit<Receta, 'autor'> {
   autor?: ResponsableLaboratorio | null
   insumos_count?: number
 }
@@ -157,7 +157,7 @@ export interface InsumoEnReceta {
 /**
  * Receta completa con array de insumos + cantidades + unidades
  */
-export interface RecetaConInsumos extends Receta {
+export interface RecetaConInsumos extends Omit<Receta, 'autor'> {
   autor?: ResponsableLaboratorio | null
   insumos: InsumoEnReceta[]
 }
@@ -434,4 +434,184 @@ export interface CambiarEstadoInput {
 export interface AsignarRecetaInput {
   id_proyecto: UUID
   id_mix: UUID
+}
+
+// =====================================================
+// PRODUCCIÓN DE ISEEDS
+// =====================================================
+
+export interface EstadoProduccion {
+  id_estado_produccion: UUID
+  nombre: string
+  created_at: string
+  updated_at: string
+  deleted_at: string | null
+}
+
+export interface ProduccionISeeds {
+  id_produccion: UUID
+  id_proyecto: UUID
+  id_receta: UUID | null
+  cantidad_planificada: number
+  cantidad_real: number | null
+  fecha_inicio: string | null
+  fecha_fin: string | null
+  id_estado_produccion: UUID | null
+  created_at: string
+  updated_at: string
+  deleted_at: string | null
+}
+
+export interface ProduccionInsumo {
+  id_produccion_insumo: UUID
+  id_produccion: UUID | null
+  id_insumo: UUID | null
+  lote_insumo: string | null
+  cantidad_real: number | null
+  unidad_medida: UUID | null
+  id_ubicacion: UUID | null
+  created_at: string
+  updated_at: string
+  deleted_at: string | null
+}
+
+export interface Disponibilidad {
+  id_disponibilidad: UUID
+  id_produccion: UUID | null
+  cantidad: number
+  fecha_produccion: string | null
+  created_at: string
+  updated_at: string
+  deleted_at: string | null
+}
+
+/**
+ * Consumo de iSeeds en proyecto
+ */
+export interface ConsumoProyecto {
+  id_consumo: UUID
+  id_proyecto: UUID | null
+  id_disponibilidad: UUID | null
+  cantidad_consumida: number | null
+  fecha_consumo: string | null
+  created_at: string
+  updated_at: string
+  deleted_at: string | null
+}
+
+/**
+ * Disponibilidad con cantidad consumida calculada
+ */
+export interface DisponibilidadWithConsumo extends Disponibilidad {
+  cantidad_consumida: number
+  cantidad_disponible: number
+  produccion?: ProduccionISeeds | null
+}
+
+/**
+ * Consumo con relaciones cargadas
+ */
+export interface ConsumoWithRelations extends ConsumoProyecto {
+  proyecto?: Proyecto | null
+  disponibilidad?: DisponibilidadWithConsumo | null
+}
+
+/**
+ * ProduccionInsumo con relaciones cargadas
+ */
+export interface ProduccionInsumoWithRelations extends ProduccionInsumo {
+  insumo?: InsumoWithRelations | null
+  unidad?: UnidadMedida | null
+}
+
+/**
+ * Producción con relaciones cargadas
+ */
+export interface ProduccionWithRelations extends ProduccionISeeds {
+  proyecto?: Proyecto | null
+  receta?: RecetaWithRelations | null
+  estado_produccion?: EstadoProduccion | null
+  insumos?: ProduccionInsumoWithRelations[]
+  disponibilidades?: Disponibilidad[]
+}
+
+// =====================================================
+// STOCK / INVENTARIO
+// =====================================================
+
+/**
+ * Tipo de movimiento de stock
+ */
+export interface TipoMovimiento {
+  id_tipo_movimiento: UUID
+  descripcion_movimiento: string
+  created_at: string
+  updated_at: string
+  deleted_at: string | null
+}
+
+/**
+ * Tipo de consumo
+ */
+export interface TipoConsumo {
+  id_consumo: UUID
+  descripcion_consumo: string
+  created_at: string
+  updated_at: string
+  deleted_at: string | null
+}
+
+/**
+ * Movimiento de laboratorio (entrada/salida de stock)
+ */
+export interface MovimientoLaboratorio {
+  id_movimiento: UUID
+  id_insumo: UUID | null
+  cantidad: number | null
+  unidad_medida: string | null
+  id_tipo_movimiento: UUID | null
+  id_consumo: UUID | null
+  fecha: string | null
+  observacion: string | null
+  created_at: string
+  updated_at: string
+  deleted_at: string | null
+}
+
+/**
+ * Movimiento con relaciones cargadas
+ */
+export interface MovimientoWithRelations extends MovimientoLaboratorio {
+  insumo?: InsumoWithRelations | null
+  tipo_movimiento?: TipoMovimiento | null
+  tipo_consumo?: TipoConsumo | null
+}
+
+/**
+ * Stock actual de un insumo
+ */
+export interface StockInsumo {
+  insumo: InsumoWithRelations
+  stock_actual: number
+  unidad_medida: string
+}
+
+// =====================================================
+// INPUTS PARA STOCK
+// =====================================================
+
+export interface RegistrarEntradaInput {
+  id_insumo: UUID
+  cantidad: number
+  unidad_medida: string
+  fecha: string
+  observacion?: string | null
+}
+
+export interface MovimientosFilters {
+  id_insumo?: UUID
+  fecha_desde?: string
+  fecha_hasta?: string
+  page?: number
+  pageSize?: number
 }

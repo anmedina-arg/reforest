@@ -493,13 +493,13 @@ export async function deleteInsumo(id: string): Promise<ActionResponse<{ id: str
  *
  * @returns Lista de tipos de insumo
  */
-export async function getTiposInsumo(): Promise<ActionResponse<{ id_tipo_insumo: string; descripcion_tipo_insumo: string }[]>> {
+export async function getTiposInsumo() {
   try {
     const supabase = await createClient()
 
     const { data, error } = await supabase
       .from('tipo_insumo')
-      .select('id_tipo_insumo, descripcion_tipo_insumo')
+      .select('*')
       .is('deleted_at', null)
       .order('descripcion_tipo_insumo', { ascending: true })
 
