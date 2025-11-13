@@ -1,8 +1,14 @@
-export default function Home() {
-  return (
-    <div className="flex min-h-screen items-center justify-center flex-col bg-zinc-50 font-sans dark:bg-black">
-      <h3>Welcome to</h3>
-      <h1 className="text-center w-full text-4xl">Reforest</h1>
-    </div>
-  );
+import { redirect } from 'next/navigation'
+import { isAuthenticated } from '@/lib/auth'
+
+export default async function Home() {
+  // Si el usuario está autenticado, redirigir a dashboard
+  const authenticated = await isAuthenticated()
+
+  if (authenticated) {
+    redirect('/dashboard')
+  }
+
+  // Si no está autenticado, redirigir a login
+  redirect('/login')
 }
