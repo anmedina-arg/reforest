@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
@@ -63,13 +63,32 @@ export function CompletarProduccionDialog({
     },
   })
 
+  // Resetear el formulario cuando cambie el produccionId o se abra el modal
+  useEffect(() => {
+    if (open && produccionId) {
+      console.log('[CompletarProduccionDialog] Reseteando formulario con produccionId:', produccionId)
+      form.reset({
+        id_produccion: produccionId,
+        cantidad_real: 0,
+        fecha_fin: new Date().toISOString().split('T')[0],
+      })
+    }
+  }, [open, produccionId, form])
+
   async function onSubmit(values: CompletarProduccionInput) {
     setIsLoading(true)
+
+    // Debug: Log de los valores enviados
+    console.log('[CompletarProduccionDialog] Valores enviados:', values)
 
     try {
       const result = await completarProduccion(values)
 
+      // Debug: Log del resultado
+      console.log('[CompletarProduccionDialog] Resultado:', result)
+
       if (!result.success && result.error) {
+        console.error('[CompletarProduccionDialog] Error:', result.error)
         toast.error(result.error)
         setIsLoading(false)
         return
@@ -88,6 +107,7 @@ export function CompletarProduccionDialog({
         router.refresh()
       }
     } catch (error) {
+      console.error('[CompletarProduccionDialog] Error inesperado:', error)
       toast.error('Error inesperado al completar la producción')
     } finally {
       setIsLoading(false)

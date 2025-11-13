@@ -132,7 +132,99 @@ export async function getProduccionesByProyecto(
 }
 
 // =====================================================
-// 2. GET PRODUCCION (DETALLE COMPLETO)
+// 2. GET ALL PRODUCCIONES (SIN FILTRO DE PROYECTO)
+// =====================================================
+
+/**
+ * Obtiene todas las producciones del sistema
+ * Con relaciones: proyecto, receta, estado_produccion
+ * Permite filtrado por estado y paginación
+ */
+export async function getAllProducciones(
+  filters?: {
+    page?: number
+    pageSize?: number
+    id_estado_produccion?: string
+  }
+): Promise<ActionResponse<PaginatedResponse<ProduccionWithRelations>>> {
+  try {
+    const supabase = await createClient()
+
+    // Valores por defecto
+    const page = filters?.page || 1
+    const pageSize = filters?.pageSize || 10
+    const id_estado_produccion = filters?.id_estado_produccion
+
+    // Construir query base
+    let query = supabase
+      .from('produccion_iseeds')
+      .select(
+        `
+        *,
+        proyecto!produccion_iseeds_id_proyecto_fkey(
+          id_proyecto,
+          nombre_del_proyecto,
+          codigo_proyecto
+        ),
+        receta!id_receta(
+          id_receta,
+          nombre,
+          descripcion
+        ),
+        estado_produccion!id_estado_produccion(
+          id_estado_produccion,
+          nombre
+        )
+      `,
+        { count: 'exact' }
+      )
+      .is('deleted_at', null)
+      .order('fecha_inicio', { ascending: false })
+
+    // Aplicar filtro de estado si existe
+    if (id_estado_produccion) {
+      query = query.eq('id_estado_produccion', id_estado_produccion)
+    }
+
+    // Aplicar paginación
+    const from = (page - 1) * pageSize
+    const to = from + pageSize - 1
+    query = query.range(from, to)
+
+    const { data, error, count } = await query
+
+    if (error) {
+      console.error('Error obteniendo producciones:', error)
+      return {
+        success: false,
+        error: 'No se pudieron obtener las producciones',
+      }
+    }
+
+    const total = count || 0
+    const totalPages = Math.ceil(total / pageSize)
+
+    return {
+      success: true,
+      data: {
+        data: (data || []) as ProduccionWithRelations[],
+        total,
+        page,
+        pageSize,
+        totalPages,
+      },
+    }
+  } catch (error) {
+    console.error('Error en getAllProducciones:', error)
+    return {
+      success: false,
+      error: 'Error inesperado al obtener producciones',
+    }
+  }
+}
+
+// =====================================================
+// 3. GET PRODUCCION (DETALLE COMPLETO)
 // =====================================================
 
 /**
@@ -341,6 +433,7 @@ export async function createProduccion(
     // Revalidar rutas
     revalidatePath('/proyectos')
     revalidatePath(`/proyectos/${id_proyecto}`)
+    revalidatePath('/produccion')
 
     return {
       success: true,
@@ -457,6 +550,7 @@ export async function iniciarProduccion(
     // Revalidar rutas
     revalidatePath('/proyectos')
     revalidatePath(`/proyectos/${produccion.id_proyecto}`)
+    revalidatePath('/produccion')
 
     return {
       success: true,
@@ -502,6 +596,8 @@ export async function completarProduccion(
 
     const { id_produccion, cantidad_real, fecha_fin } = validated.data
 
+    console.log('[completarProduccion] 1. Input validado:', { id_produccion, cantidad_real, fecha_fin })
+
     // Obtener la producción con relaciones completas
     const { data: produccion, error: produccionError } = await supabase
       .from('produccion_iseeds')
@@ -510,14 +606,15 @@ export async function completarProduccion(
         *,
         proyecto:id_proyecto(
           id_proyecto,
-          nombre
+          nombre_del_proyecto,
+          codigo_proyecto
         ),
         receta:id_receta(
           id_receta,
           nombre,
           descripcion
         ),
-        estado_produccion!id_estado_produccion(
+        estado_produccion:id_estado_produccion(
           id_estado_produccion,
           nombre
         )
@@ -527,16 +624,51 @@ export async function completarProduccion(
       .is('deleted_at', null)
       .single()
 
+    console.log('[completarProduccion] 2. Query ejecutada')
+    console.log('[completarProduccion] 3. Resultado:', produccion)
+    console.log('[completarProduccion] 4. Error:', produccionError)
+
     if (produccionError || !produccion) {
+      console.error('[completarProduccion] 5. Producción no encontrada')
+      console.error('[completarProduccion] - Error completo:', JSON.stringify(produccionError, null, 2))
+      console.error('[completarProduccion] - ID buscado:', id_produccion)
+
+      // Intento de búsqueda más simple para diagnóstico
+      const { data: produccionSimple, error: errorSimple } = await supabase
+        .from('produccion_iseeds')
+        .select('*')
+        .eq('id_produccion', id_produccion)
+        .single()
+
+      console.error('[completarProduccion] - Búsqueda simple (sin joins):', {
+        encontrada: !!produccionSimple,
+        error: errorSimple,
+        data: produccionSimple,
+      })
+
       return {
         success: false,
-        error: 'Producción no encontrada',
+        error: `Producción no encontrada. ID: ${id_produccion}. Error: ${produccionError?.message || 'Desconocido'}`,
       }
     }
 
+    console.log('[completarProduccion] 6. Producción encontrada:', {
+      id: produccion.id_produccion,
+      proyecto: produccion.proyecto?.nombre_del_proyecto || 'Sin nombre',
+      receta: produccion.receta?.nombre || 'Sin receta',
+      estado: produccion.estado_produccion?.nombre || 'Sin estado',
+      id_estado_produccion: produccion.id_estado_produccion,
+    })
+
     // Validar que esté en estado 'en_curso'
     const estadoNombre = produccion.estado_produccion?.nombre?.toLowerCase() || ''
+    console.log('[completarProduccion] 7. Validando estado:', {
+      estadoNombre,
+      includesCurso: estadoNombre.includes('curso'),
+    })
+
     if (!estadoNombre.includes('curso')) {
+      console.error('[completarProduccion] 8. Estado inválido:', produccion.estado_produccion?.nombre)
       return {
         success: false,
         error: `No se puede completar: la producción está en estado "${produccion.estado_produccion?.nombre}". Solo se pueden completar producciones en curso.`,
@@ -545,11 +677,14 @@ export async function completarProduccion(
 
     // Validar que tenga receta
     if (!produccion.id_receta) {
+      console.error('[completarProduccion] 9. Sin receta asignada')
       return {
         success: false,
         error: 'La producción no tiene una receta asignada',
       }
     }
+
+    console.log('[completarProduccion] 10. Validaciones pasadas, continuando...')
 
     // Obtener los insumos de la receta con cantidades y unidades
     const { data: recetaInsumos, error: insumosError } = await supabase
@@ -677,7 +812,7 @@ export async function completarProduccion(
     const fechaFinFinal = fecha_fin || new Date().toISOString().split('T')[0]
 
     // Crear observación legible
-    const nombreProyecto = produccion.proyecto?.nombre || 'Sin nombre'
+    const nombreProyecto = produccion.proyecto?.nombre_del_proyecto || 'Sin nombre'
     const nombreReceta = produccion.receta?.nombre || 'Sin nombre'
     const observacion = `Producción ${nombreReceta} - Proyecto ${nombreProyecto} - ${fechaFinFinal}`
 
@@ -774,6 +909,7 @@ export async function completarProduccion(
     // Revalidar rutas
     revalidatePath('/proyectos')
     revalidatePath(`/proyectos/${produccion.id_proyecto}`)
+    revalidatePath('/produccion')
 
     return {
       success: true,
@@ -896,6 +1032,7 @@ export async function cancelarProduccion(
     // Revalidar rutas
     revalidatePath('/proyectos')
     revalidatePath(`/proyectos/${produccion.id_proyecto}`)
+    revalidatePath('/produccion')
 
     return {
       success: true,
@@ -906,6 +1043,45 @@ export async function cancelarProduccion(
     return {
       success: false,
       error: 'Error inesperado al cancelar la producción',
+    }
+  }
+}
+
+// =====================================================
+// 7. GET ESTADOS PRODUCCION
+// =====================================================
+
+/**
+ * Obtiene todos los estados de producción disponibles
+ */
+export async function getEstadosProduccion(): Promise<
+  ActionResponse<{ id_estado_produccion: string; nombre: string }[]>
+> {
+  try {
+    const supabase = await createClient()
+
+    const { data, error } = await supabase
+      .from('estado_produccion')
+      .select('id_estado_produccion, nombre')
+      .order('nombre', { ascending: true })
+
+    if (error) {
+      console.error('Error obteniendo estados de producción:', error)
+      return {
+        success: false,
+        error: 'No se pudieron obtener los estados de producción',
+      }
+    }
+
+    return {
+      success: true,
+      data: data || [],
+    }
+  } catch (error) {
+    console.error('Error en getEstadosProduccion:', error)
+    return {
+      success: false,
+      error: 'Error inesperado al obtener estados de producción',
     }
   }
 }

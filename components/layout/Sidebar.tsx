@@ -63,7 +63,6 @@ const mainNavItems: NavItem[] = [
     title: 'Producción',
     href: '/produccion',
     icon: FlaskConical,
-    disabled: true,
   },
   {
     title: 'Insumos',
