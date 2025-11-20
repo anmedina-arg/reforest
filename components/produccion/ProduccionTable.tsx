@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { format } from 'date-fns'
+import { format, isPast } from 'date-fns'
 import { es } from 'date-fns/locale'
 import { Play, CheckCircle, XCircle, Eye } from 'lucide-react'
 import Link from 'next/link'
@@ -18,6 +18,7 @@ import {
 } from '@/components/ui/table'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { Progress } from '@/components/ui/progress'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -55,13 +56,37 @@ interface ProduccionToComplete {
 // HELPER FUNCTIONS
 // =====================================================
 
+function isProduccionAtrasada(produccion: ProduccionWithRelations): boolean {
+  // Solo marcar como atrasada si tiene fecha_fin planificada, está vencida y no está completada
+  if (!produccion.fecha_fin) return false
+
+  const estadoNombre = produccion.estado_produccion?.nombre?.toLowerCase() || ''
+  const isCompletada = estadoNombre.includes('completada')
+
+  if (isCompletada) return false
+
+  try {
+    return isPast(new Date(produccion.fecha_fin))
+  } catch {
+    return false
+  }
+}
+
 function getEstadoBadgeVariant(
-  estadoNombre?: string
+  estadoNombre?: string,
+  isAtrasada?: boolean
 ): 'default' | 'secondary' | 'success' | 'destructive' | 'outline' {
+  // ATRASADA tiene prioridad sobre todo
+  if (isAtrasada) return 'destructive'
+
   if (!estadoNombre) return 'secondary'
 
   const nombre = estadoNombre.toLowerCase()
 
+  // Parcialmente completada → amarillo (warning)
+  if (nombre.includes('parcial')) {
+    return 'outline' // amarillo/warning
+  }
   if (nombre.includes('curso')) {
     return 'default' // azul
   }
@@ -76,6 +101,12 @@ function getEstadoBadgeVariant(
   }
 
   return 'secondary'
+}
+
+function getProgressColor(percentage: number): string {
+  if (percentage >= 80) return 'bg-green-500'
+  if (percentage >= 50) return 'bg-yellow-500'
+  return 'bg-red-500'
 }
 
 function formatFecha(fecha: string | null): string {
@@ -171,9 +202,16 @@ export function ProduccionTable({ producciones }: ProduccionTableProps) {
               producciones.map((produccion) => {
                 const estadoNombre = produccion.estado_produccion?.nombre?.toLowerCase() || ''
                 const isPlanificada = estadoNombre.includes('planificada')
-                const isEnCurso = estadoNombre.includes('curso')
+                const isEnCurso = estadoNombre.includes('curso') || estadoNombre.includes('parcial')
                 const isCompletada = estadoNombre.includes('completada')
                 const isCancelada = estadoNombre.includes('cancelada')
+                const isAtrasada = isProduccionAtrasada(produccion)
+
+                // Calcular porcentaje para progress bar
+                const cantidadReal = produccion.cantidad_real || 0
+                const cantidadPlanificada = produccion.cantidad_planificada || 1
+                const porcentaje = Math.round((cantidadReal / cantidadPlanificada) * 100)
+                const progressColor = getProgressColor(porcentaje)
 
                 return (
                   <TableRow key={produccion.id_produccion}>
@@ -201,9 +239,27 @@ export function ProduccionTable({ producciones }: ProduccionTableProps) {
 
                     {/* Estado */}
                     <TableCell>
-                      <Badge variant={getEstadoBadgeVariant(produccion.estado_produccion?.nombre)}>
-                        {produccion.estado_produccion?.nombre || 'Sin estado'}
-                      </Badge>
+                      <div className="flex flex-col gap-1">
+                        {isAtrasada ? (
+                          <Badge variant="destructive" className="w-fit">
+                            ATRASADA
+                          </Badge>
+                        ) : (
+                          <Badge
+                            variant={getEstadoBadgeVariant(
+                              produccion.estado_produccion?.nombre,
+                              isAtrasada
+                            )}
+                            className={
+                              estadoNombre.includes('parcial')
+                                ? 'bg-yellow-500 text-yellow-950 hover:bg-yellow-600 w-fit'
+                                : 'w-fit'
+                            }
+                          >
+                            {produccion.estado_produccion?.nombre || 'Sin estado'}
+                          </Badge>
+                        )}
+                      </div>
                     </TableCell>
 
                     {/* Fecha inicio */}
@@ -211,30 +267,21 @@ export function ProduccionTable({ producciones }: ProduccionTableProps) {
                       <span className="text-sm">{formatFecha(produccion.fecha_inicio)}</span>
                     </TableCell>
 
-                    {/* Cantidad */}
+                    {/* Cantidad con Progress Bar */}
                     <TableCell className="text-right">
-                      <div className="flex flex-col items-end text-sm">
-                        {isCompletada && produccion.cantidad_real !== null ? (
-                          <>
-                            <span className="font-medium text-muted-foreground">
-                              {new Intl.NumberFormat('es-AR').format(
-                                produccion.cantidad_planificada || 0
-                              )}{' '}
-                              plan.
-                            </span>
-                            <span className="text-green-600 font-semibold">
-                              {new Intl.NumberFormat('es-AR').format(produccion.cantidad_real)}{' '}
-                              real
-                            </span>
-                          </>
-                        ) : (
-                          <span className="font-medium">
-                            {new Intl.NumberFormat('es-AR').format(
-                              produccion.cantidad_planificada || 0
-                            )}{' '}
-                            plan.
+                      <div className="flex flex-col gap-2 min-w-[180px]">
+                        <div className="flex items-center justify-end gap-2">
+                          <span className="text-sm font-medium">
+                            {new Intl.NumberFormat('es-AR').format(cantidadReal)} /{' '}
+                            {new Intl.NumberFormat('es-AR').format(cantidadPlanificada)} iSeeds
                           </span>
-                        )}
+                          <span className="text-xs text-muted-foreground">({porcentaje}%)</span>
+                        </div>
+                        <Progress
+                          value={porcentaje}
+                          className="h-2"
+                          indicatorClassName={progressColor}
+                        />
                       </div>
                     </TableCell>
 

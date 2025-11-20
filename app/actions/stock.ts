@@ -16,6 +16,7 @@ import type {
   MovimientoLaboratorio,
   PaginatedResponse,
 } from '@/types/entities'
+import { convertToBaseUnit, convertUnit, getTipoUnidad } from '@/lib/utils/units'
 
 // =====================================================
 // RESPONSE TYPES
@@ -79,7 +80,7 @@ export async function getStockActual(): Promise<ActionResponse<StockInsumo[]>> {
     const stockPromises = insumos.map(async (insumo: any) => {
       const { data: movimientos, error: movimientosError } = await supabase
         .from('movimiento_laboratorio')
-        .select('cantidad')
+        .select('cantidad, unidad_medida')
         .eq('id_insumo', insumo.id_insumo)
         .is('deleted_at', null)
 
@@ -88,12 +89,54 @@ export async function getStockActual(): Promise<ActionResponse<StockInsumo[]>> {
         return null
       }
 
-      const stockActual = movimientos?.reduce((sum, mov) => sum + (mov.cantidad || 0), 0) || 0
+      // Unidad oficial del insumo (para retornar el stock en esta unidad)
+      const unidadInsumo = insumo.unidad?.abreviatura || insumo.unidad?.nombre || 'unidad'
+
+      // Sumar movimientos convirtiendo cada uno a unidad base
+      let stockEnBase = 0
+
+      if (movimientos && movimientos.length > 0) {
+        try {
+          for (const mov of movimientos) {
+            const cantidad = mov.cantidad || 0
+            const unidadMov = mov.unidad_medida || unidadInsumo
+
+            // Convertir a unidad base (gramos, mililitros o unidades)
+            const cantidadBase = convertToBaseUnit(cantidad, unidadMov)
+            stockEnBase += cantidadBase
+          }
+
+          console.log(
+            `[getStockActual] Stock calculado para ${insumo.nombre}: ${stockEnBase} (base) = ${convertUnit(stockEnBase, unidadInsumo, unidadInsumo)} ${unidadInsumo}`
+          )
+        } catch (error) {
+          console.error(
+            `[getStockActual] Error convirtiendo unidades para insumo ${insumo.nombre}:`,
+            error
+          )
+          // Si hay error, usar suma directa como fallback
+          stockEnBase = movimientos.reduce((sum, mov) => sum + (mov.cantidad || 0), 0)
+        }
+      }
+
+      // Convertir el stock de unidad base a la unidad del insumo para mostrar
+      let stockActual = 0
+      try {
+        // Determinar la unidad base según el tipo de unidad del insumo
+        const tipo = getTipoUnidad(unidadInsumo)
+        const unidadBase = tipo === 'peso' ? 'g' : tipo === 'volumen' ? 'ml' : 'u'
+
+        // Convertir de unidad base a unidad del insumo
+        stockActual = convertUnit(stockEnBase, unidadBase, unidadInsumo)
+      } catch {
+        // Si falla conversión, usar valor en base
+        stockActual = stockEnBase
+      }
 
       return {
         insumo: insumo,
-        stock_actual: stockActual,
-        unidad_medida: insumo.unidad?.nombre || insumo.unidad?.abreviatura || 'unidad',
+        stock_actual: Math.round(stockActual * 100) / 100, // Redondear a 2 decimales
+        unidad_medida: unidadInsumo,
       } as StockInsumo
     })
 
@@ -169,29 +212,73 @@ export async function getStockByInsumo(
       }
     }
 
-    // Calcular stock actual sumando todos los movimientos
+    // Calcular stock actual sumando todos los movimientos con conversión de unidades
     const { data: movimientos, error: movimientosError } = await supabase
       .from('movimiento_laboratorio')
-      .select('cantidad')
+      .select('cantidad, unidad_medida')
       .eq('id_insumo', id_insumo)
       .is('deleted_at', null)
 
     if (movimientosError) {
-      console.error('Error calculando stock:', movimientosError)
+      console.error('[getStockByInsumo] Error calculando stock:', movimientosError)
       return {
         success: false,
         error: 'No se pudo calcular el stock del insumo',
       }
     }
 
-    const stockActual = movimientos?.reduce((sum, mov) => sum + (mov.cantidad || 0), 0) || 0
+    // Unidad oficial del insumo (para retornar el stock en esta unidad)
+    const unidadInsumo =
+      (insumo as any).unidad?.abreviatura || (insumo as any).unidad?.nombre || 'unidad'
+
+    // Sumar movimientos convirtiendo cada uno a unidad base
+    let stockEnBase = 0
+
+    if (movimientos && movimientos.length > 0) {
+      try {
+        for (const mov of movimientos) {
+          const cantidad = mov.cantidad || 0
+          const unidadMov = mov.unidad_medida || unidadInsumo
+
+          // Convertir a unidad base (gramos, mililitros o unidades)
+          const cantidadBase = convertToBaseUnit(cantidad, unidadMov)
+          stockEnBase += cantidadBase
+
+          console.log(`[getStockByInsumo] Movimiento: ${cantidad} ${unidadMov} = ${cantidadBase} (base)`)
+        }
+
+        console.log(
+          `[getStockByInsumo] Stock total: ${stockEnBase} (base) para ${(insumo as any).nombre}`
+        )
+      } catch (error) {
+        console.error(`[getStockByInsumo] Error convirtiendo unidades:`, error)
+        // Si hay error, usar suma directa como fallback
+        stockEnBase = movimientos.reduce((sum, mov) => sum + (mov.cantidad || 0), 0)
+      }
+    }
+
+    // Convertir el stock de unidad base a la unidad del insumo para mostrar
+    let stockActual = 0
+    try {
+      // Determinar la unidad base según el tipo de unidad del insumo
+      const tipo = getTipoUnidad(unidadInsumo)
+      const unidadBase = tipo === 'peso' ? 'g' : tipo === 'volumen' ? 'ml' : 'u'
+
+      // Convertir de unidad base a unidad del insumo
+      stockActual = convertUnit(stockEnBase, unidadBase, unidadInsumo)
+      console.log(`[getStockByInsumo] Stock en unidad del insumo: ${stockActual} ${unidadInsumo}`)
+    } catch (error) {
+      console.error(`[getStockByInsumo] Error convirtiendo a unidad del insumo:`, error)
+      // Si falla conversión, usar valor en base
+      stockActual = stockEnBase
+    }
 
     return {
       success: true,
       data: {
         insumo: insumo as any,
-        stock_actual: stockActual,
-        unidad_medida: (insumo as any).unidad?.nombre || (insumo as any).unidad?.abreviatura || 'unidad',
+        stock_actual: Math.round(stockActual * 100) / 100, // Redondear a 2 decimales
+        unidad_medida: unidadInsumo,
       },
     }
   } catch (error) {

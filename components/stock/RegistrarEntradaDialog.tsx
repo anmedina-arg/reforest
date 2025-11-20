@@ -38,6 +38,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { registrarEntrada } from '@/app/actions/stock'
 import { registrarEntradaSchema, type RegistrarEntradaInput } from '@/lib/validations/stock'
 import type { InsumoWithRelations } from '@/types/entities'
+import { getTipoUnidad, type TipoUnidad } from '@/lib/utils/units'
 
 // =====================================================
 // TYPES
@@ -48,6 +49,27 @@ interface RegistrarEntradaDialogProps {
   onOpenChange: (open: boolean) => void
   insumos: InsumoWithRelations[]
 }
+
+// =====================================================
+// CONSTANTS
+// =====================================================
+
+// Unidades disponibles por tipo
+const UNIDADES_PESO = [
+  { value: 'kilogramo', label: 'Kilogramo (kg)' },
+  { value: 'kg', label: 'kg' },
+  { value: 'gramo', label: 'Gramo (g)' },
+  { value: 'g', label: 'g' },
+]
+
+const UNIDADES_VOLUMEN = [
+  { value: 'litro', label: 'Litro (l)' },
+  { value: 'l', label: 'l' },
+  { value: 'mililitro', label: 'Mililitro (ml)' },
+  { value: 'ml', label: 'ml' },
+]
+
+const UNIDADES_UNIDAD = [{ value: 'unidad', label: 'Unidad (u)' }, { value: 'u', label: 'u' }]
 
 // =====================================================
 // COMPONENT
@@ -75,11 +97,40 @@ export function RegistrarEntradaDialog({
   const insumoSeleccionado = form.watch('id_insumo')
   const insumoData = insumos.find((i) => i.id_insumo === insumoSeleccionado)
 
+  // Determinar qué unidades mostrar según el tipo de unidad del insumo
+  const getUnidadesDisponibles = () => {
+    if (!insumoData || !insumoData.unidad) {
+      return [...UNIDADES_PESO, ...UNIDADES_VOLUMEN, ...UNIDADES_UNIDAD]
+    }
+
+    const unidadNombre =
+      insumoData.unidad.abreviatura || insumoData.unidad.nombre || 'unidad'
+
+    try {
+      const tipo = getTipoUnidad(unidadNombre)
+
+      switch (tipo) {
+        case 'peso':
+          return UNIDADES_PESO
+        case 'volumen':
+          return UNIDADES_VOLUMEN
+        case 'unidad':
+          return UNIDADES_UNIDAD
+        default:
+          return [...UNIDADES_PESO, ...UNIDADES_VOLUMEN, ...UNIDADES_UNIDAD]
+      }
+    } catch (error) {
+      // Si no se puede determinar el tipo, mostrar todas las unidades
+      console.warn('No se pudo determinar el tipo de unidad:', error)
+      return [...UNIDADES_PESO, ...UNIDADES_VOLUMEN, ...UNIDADES_UNIDAD]
+    }
+  }
+
   // Auto-populate unidad_medida when insumo is selected
   const handleInsumoChange = (insumoId: string) => {
     const insumo = insumos.find((i) => i.id_insumo === insumoId)
     if (insumo && insumo.unidad) {
-      form.setValue('unidad_medida', insumo.unidad.nombre || insumo.unidad.abreviatura || '')
+      form.setValue('unidad_medida', insumo.unidad.abreviatura || insumo.unidad.nombre || '')
     }
     form.setValue('id_insumo', insumoId)
   }
@@ -214,17 +265,34 @@ export function RegistrarEntradaDialog({
               )}
             />
 
-            {/* Unidad de Medida (auto-populated, readonly) */}
+            {/* Unidad de Medida */}
             <FormField
               control={form.control}
               name="unidad_medida"
               render={({ field }) => (
                 <FormItem>
                   <FormLabel>Unidad de Medida *</FormLabel>
-                  <FormControl>
-                    <Input {...field} disabled value={field.value || ''} />
-                  </FormControl>
-                  <FormDescription>Se asigna automáticamente según el insumo</FormDescription>
+                  <Select
+                    onValueChange={field.onChange}
+                    value={field.value}
+                    disabled={isLoading || !insumoSeleccionado}
+                  >
+                    <FormControl>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Selecciona una unidad" />
+                      </SelectTrigger>
+                    </FormControl>
+                    <SelectContent>
+                      {getUnidadesDisponibles().map((unidad) => (
+                        <SelectItem key={unidad.value} value={unidad.value}>
+                          {unidad.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <FormDescription>
+                    Selecciona la unidad de medida (se sugiere la unidad del insumo)
+                  </FormDescription>
                   <FormMessage />
                 </FormItem>
               )}

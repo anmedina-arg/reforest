@@ -20,6 +20,13 @@ import type {
   ProduccionInsumoWithRelations,
   Disponibilidad,
 } from '@/types/entities'
+import {
+  compareStock,
+  formatCantidad,
+  convertToBaseUnit,
+  convertUnit,
+  getTipoUnidad,
+} from '@/lib/utils/units'
 
 // =====================================================
 // RESPONSE TYPES
@@ -394,6 +401,184 @@ export async function createProduccion(
       }
     }
 
+    // ===================================================================
+    // VALIDAR STOCK SUFICIENTE ANTES DE PLANIFICAR
+    // ===================================================================
+
+    console.log('[createProduccion] 1. Validando stock disponible para la producción...')
+
+    // Obtener los insumos de la receta con cantidades y unidades
+    const { data: recetaInsumos, error: insumosError } = await supabase
+      .from('receta_insumo')
+      .select(
+        `
+        id_insumo,
+        cantidad_teorica,
+        unidad:unidad_medida!inner(
+          id_unidad,
+          nombre,
+          abreviatura
+        ),
+        insumo:id_insumo(
+          id_insumo,
+          nombre
+        )
+      `
+      )
+      .eq('id_receta', id_receta)
+      .is('deleted_at', null)
+
+    if (insumosError) {
+      console.error('[createProduccion] Error obteniendo insumos de receta:', insumosError)
+      return {
+        success: false,
+        error: 'No se pudieron obtener los insumos de la receta',
+      }
+    }
+
+    if (!recetaInsumos || recetaInsumos.length === 0) {
+      console.log('[createProduccion] La receta no tiene insumos registrados, continuando sin validación de stock')
+    }
+
+    // Validar stock para cada insumo
+    const stockInsuficiente: string[] = []
+
+    if (recetaInsumos && recetaInsumos.length > 0) {
+      // Calcular cantidades necesarias: cantidad_teorica × cantidad_planificada
+      const insumosCalculados = recetaInsumos.map((ri: any) => ({
+        id_insumo: ri.id_insumo,
+        nombre_insumo: ri.insumo?.nombre || 'Sin nombre',
+        cantidad_necesaria: (ri.cantidad_teorica || 0) * cantidad_planificada,
+        unidad_medida: ri.unidad?.abreviatura || ri.unidad?.nombre || 'unidad',
+      }))
+
+      console.log('[createProduccion] 2. Insumos requeridos:', insumosCalculados)
+
+      for (const insumo of insumosCalculados) {
+        // Obtener el insumo con su unidad de medida oficial
+        const { data: insumoData, error: insumoError } = await supabase
+          .from('insumo')
+          .select(
+            `
+            id_insumo,
+            nombre,
+            unidad:unidad_medida(
+              id_unidad,
+              nombre,
+              abreviatura
+            )
+          `
+          )
+          .eq('id_insumo', insumo.id_insumo)
+          .is('deleted_at', null)
+          .single()
+
+        if (insumoError || !insumoData) {
+          console.error('[createProduccion] Error obteniendo insumo:', insumoError)
+          return {
+            success: false,
+            error: `No se pudo obtener información del insumo ${insumo.nombre_insumo}`,
+          }
+        }
+
+        // Unidad oficial del insumo (puede ser array o objeto dependiendo de la query)
+        const unidadData = Array.isArray(insumoData.unidad)
+          ? insumoData.unidad[0]
+          : insumoData.unidad
+        const unidadInsumo = unidadData?.abreviatura || unidadData?.nombre || 'unidad'
+
+        // Calcular stock actual sumando todos los movimientos con conversión de unidades
+        const { data: movimientos, error: movimientosError } = await supabase
+          .from('movimiento_laboratorio')
+          .select('cantidad, unidad_medida')
+          .eq('id_insumo', insumo.id_insumo)
+          .is('deleted_at', null)
+
+        if (movimientosError) {
+          console.error('[createProduccion] Error calculando stock:', movimientosError)
+          return {
+            success: false,
+            error: `No se pudo calcular el stock del insumo ${insumo.nombre_insumo}`,
+          }
+        }
+
+        // Sumar movimientos convirtiendo cada uno a unidad base
+        let stockEnBase = 0
+        if (movimientos && movimientos.length > 0) {
+          try {
+            for (const mov of movimientos) {
+              const cantidad = mov.cantidad || 0
+              const unidadMov = mov.unidad_medida || unidadInsumo
+              const cantidadBase = convertToBaseUnit(cantidad, unidadMov)
+              stockEnBase += cantidadBase
+            }
+          } catch (error) {
+            console.error('[createProduccion] Error convirtiendo unidades:', error)
+            stockEnBase = movimientos.reduce((sum, mov) => sum + (mov.cantidad || 0), 0)
+          }
+        }
+
+        // Convertir a la unidad del insumo para usar en compareStock
+        let stockActual = 0
+        if (stockEnBase > 0) {
+          try {
+            const tipo = getTipoUnidad(unidadInsumo)
+            const unidadBase = tipo === 'peso' ? 'g' : tipo === 'volumen' ? 'ml' : 'u'
+            stockActual = convertUnit(stockEnBase, unidadBase, unidadInsumo)
+          } catch {
+            stockActual = stockEnBase
+          }
+        }
+
+        console.log('[createProduccion] 3. Verificando stock con conversión de unidades:', {
+          insumo: insumo.nombre_insumo,
+          stockActual,
+          unidadStock: unidadInsumo,
+          cantidadNecesaria: insumo.cantidad_necesaria,
+          unidadNecesaria: insumo.unidad_medida,
+        })
+
+        // Verificar si hay stock suficiente usando conversión de unidades
+        try {
+          const haySuficiente = compareStock(
+            stockActual,
+            unidadInsumo,
+            insumo.cantidad_necesaria,
+            insumo.unidad_medida
+          )
+
+          if (!haySuficiente) {
+            stockInsuficiente.push(
+              `${insumo.nombre_insumo}: disponible ${formatCantidad(stockActual, unidadInsumo)}, ` +
+                `necesario ${formatCantidad(insumo.cantidad_necesaria, insumo.unidad_medida)}`
+            )
+          }
+        } catch (error) {
+          // Si hay error en conversión de unidades, registrar y reportar
+          console.error('[createProduccion] Error comparando unidades:', error)
+          return {
+            success: false,
+            error: `Error al comparar unidades para ${insumo.nombre_insumo}: ${(error as Error).message}`,
+          }
+        }
+      }
+
+      // Si hay stock insuficiente, no crear la producción
+      if (stockInsuficiente.length > 0) {
+        console.log('[createProduccion] 4. Stock insuficiente detectado:', stockInsuficiente)
+        return {
+          success: false,
+          error: `Stock insuficiente para planificar la producción:\n${stockInsuficiente.join('\n')}`,
+        }
+      }
+
+      console.log('[createProduccion] 5. Validación de stock exitosa, todos los insumos disponibles')
+    }
+
+    // ===================================================================
+    // CREAR LA PRODUCCIÓN
+    // ===================================================================
+
     // Obtener el estado 'planificada'
     const { data: estadoPlanificada, error: estadoError } = await supabase
       .from('estado_produccion')
@@ -658,20 +843,38 @@ export async function completarProduccion(
       receta: produccion.receta?.nombre || 'Sin receta',
       estado: produccion.estado_produccion?.nombre || 'Sin estado',
       id_estado_produccion: produccion.id_estado_produccion,
+      cantidad_planificada: produccion.cantidad_planificada,
+      cantidad_real_actual: produccion.cantidad_real,
     })
 
-    // Validar que esté en estado 'en_curso'
+    // Calcular cantidad real acumulada (soporta entregas parciales)
+    const cantidadRealActual = produccion.cantidad_real || 0
+    const cantidadIngresada = cantidad_real // Lo que ingresa el usuario en este llamado
+    const cantidadRealNueva = cantidadRealActual + cantidadIngresada // Acumulado
+
+    console.log('[completarProduccion] 6.1. Cálculo de cantidades:', {
+      cantidadRealActual,
+      cantidadIngresada,
+      cantidadRealNueva,
+      cantidadPlanificada: produccion.cantidad_planificada,
+    })
+
+    // Validar que esté en estado 'en_curso' o 'parcialmente completada'
     const estadoNombre = produccion.estado_produccion?.nombre?.toLowerCase() || ''
     console.log('[completarProduccion] 7. Validando estado:', {
       estadoNombre,
       includesCurso: estadoNombre.includes('curso'),
+      includesParcial: estadoNombre.includes('parcial'),
     })
 
-    if (!estadoNombre.includes('curso')) {
+    const estadoValido =
+      estadoNombre.includes('curso') || estadoNombre.includes('parcial')
+
+    if (!estadoValido) {
       console.error('[completarProduccion] 8. Estado inválido:', produccion.estado_produccion?.nombre)
       return {
         success: false,
-        error: `No se puede completar: la producción está en estado "${produccion.estado_produccion?.nombre}". Solo se pueden completar producciones en curso.`,
+        error: `No se puede completar: la producción está en estado "${produccion.estado_produccion?.nombre}". Solo se pueden completar producciones en curso o parcialmente completadas.`,
       }
     }
 
@@ -722,65 +925,168 @@ export async function completarProduccion(
       }
     }
 
-    // Calcular cantidades necesarias: cantidad_teorica × cantidad_real
+    // Calcular cantidades necesarias: cantidad_teorica × cantidad_ingresada
+    // IMPORTANTE: Se calcula solo por la cantidad INGRESADA, no por el total acumulado
     const insumosCalculados = recetaInsumos.map((ri: any) => ({
       id_insumo: ri.id_insumo,
       nombre_insumo: ri.insumo?.nombre || 'Sin nombre',
-      cantidad_necesaria: (ri.cantidad_teorica || 0) * cantidad_real,
+      cantidad_necesaria: (ri.cantidad_teorica || 0) * cantidadIngresada,
       unidad_medida: ri.unidad?.abreviatura || ri.unidad?.nombre || 'unidad',
     }))
+
+    console.log('[completarProduccion] 11. Insumos calculados (solo por cantidad ingresada):', insumosCalculados)
 
     // Validar stock suficiente para cada insumo
     const stockInsuficiente: string[] = []
 
     for (const insumo of insumosCalculados) {
-      // Calcular stock actual sumando todos los movimientos
+      // Obtener el insumo con su unidad de medida oficial
+      const { data: insumoData, error: insumoError } = await supabase
+        .from('insumo')
+        .select(`
+          id_insumo,
+          nombre,
+          unidad:unidad_medida(
+            id_unidad,
+            nombre,
+            abreviatura
+          )
+        `)
+        .eq('id_insumo', insumo.id_insumo)
+        .is('deleted_at', null)
+        .single()
+
+      if (insumoError || !insumoData) {
+        console.error('[completarProduccion] Error obteniendo insumo:', insumoError)
+        return {
+          success: false,
+          error: `No se pudo obtener información del insumo ${insumo.nombre_insumo}`,
+        }
+      }
+
+      // Unidad oficial del insumo (puede ser array o objeto dependiendo de la query)
+      const unidadData = Array.isArray(insumoData.unidad) ? insumoData.unidad[0] : insumoData.unidad
+      const unidadInsumo = unidadData?.abreviatura || unidadData?.nombre || 'unidad'
+
+      // Calcular stock actual sumando todos los movimientos con conversión de unidades
       const { data: movimientos, error: movimientosError } = await supabase
         .from('movimiento_laboratorio')
-        .select('cantidad')
+        .select('cantidad, unidad_medida')
         .eq('id_insumo', insumo.id_insumo)
         .is('deleted_at', null)
 
       if (movimientosError) {
-        console.error('Error calculando stock:', movimientosError)
+        console.error('[completarProduccion] Error calculando stock:', movimientosError)
         return {
           success: false,
           error: `No se pudo calcular el stock del insumo ${insumo.nombre_insumo}`,
         }
       }
 
-      const stockActual = movimientos?.reduce((sum, mov) => sum + (mov.cantidad || 0), 0) || 0
+      // Sumar movimientos convirtiendo cada uno a unidad base
+      let stockEnBase = 0
+      if (movimientos && movimientos.length > 0) {
+        try {
+          for (const mov of movimientos) {
+            const cantidad = mov.cantidad || 0
+            const unidadMov = mov.unidad_medida || unidadInsumo
+            const cantidadBase = convertToBaseUnit(cantidad, unidadMov)
+            stockEnBase += cantidadBase
+          }
+        } catch (error) {
+          console.error('[completarProduccion] Error convirtiendo unidades:', error)
+          stockEnBase = movimientos.reduce((sum, mov) => sum + (mov.cantidad || 0), 0)
+        }
+      }
 
-      // Verificar si hay stock suficiente
-      if (stockActual < insumo.cantidad_necesaria) {
-        stockInsuficiente.push(
-          `${insumo.nombre_insumo}: disponible ${stockActual}, necesario ${insumo.cantidad_necesaria} ${insumo.unidad_medida}`
+      // Convertir a la unidad del insumo para usar en compareStock
+      let stockActual = 0
+      if (stockEnBase > 0) {
+        try {
+          const tipo = getTipoUnidad(unidadInsumo)
+          const unidadBase = tipo === 'peso' ? 'g' : tipo === 'volumen' ? 'ml' : 'u'
+          stockActual = convertUnit(stockEnBase, unidadBase, unidadInsumo)
+        } catch {
+          stockActual = stockEnBase
+        }
+      }
+
+      console.log('[completarProduccion] 11.1. Verificando stock con conversión de unidades:', {
+        insumo: insumo.nombre_insumo,
+        stockActual,
+        unidadStock: unidadInsumo,
+        cantidadNecesaria: insumo.cantidad_necesaria,
+        unidadNecesaria: insumo.unidad_medida,
+      })
+
+      // Verificar si hay stock suficiente usando conversión de unidades
+      try {
+        const haySuficiente = compareStock(
+          stockActual,
+          unidadInsumo,
+          insumo.cantidad_necesaria,
+          insumo.unidad_medida
         )
+
+        if (!haySuficiente) {
+          stockInsuficiente.push(
+            `${insumo.nombre_insumo}: disponible ${formatCantidad(stockActual, unidadInsumo)}, ` +
+            `necesario ${formatCantidad(insumo.cantidad_necesaria, insumo.unidad_medida)}`
+          )
+        }
+      } catch (error) {
+        // Si hay error en conversión de unidades, registrar y reportar
+        console.error('[completarProduccion] Error comparando unidades:', error)
+        return {
+          success: false,
+          error: `Error al comparar unidades para ${insumo.nombre_insumo}: ${(error as Error).message}`,
+        }
       }
     }
 
     // Si hay stock insuficiente, no completar
     if (stockInsuficiente.length > 0) {
+      console.log('[completarProduccion] 11.2. Stock insuficiente detectado:', stockInsuficiente)
       return {
         success: false,
         error: `Stock insuficiente para completar la producción:\n${stockInsuficiente.join('\n')}`,
       }
     }
 
-    // Obtener el estado 'completada'
-    const { data: estadoCompletada, error: estadoError } = await supabase
+    console.log('[completarProduccion] 11.3. Validación de stock exitosa, todos los insumos disponibles')
+
+    // Determinar el estado final según la cantidad
+    const estaCompletada = cantidadRealNueva >= (produccion.cantidad_planificada || 0)
+    const nombreEstadoBuscado = estaCompletada ? 'completada' : 'parcial'
+
+    console.log('[completarProduccion] 12. Determinando estado final:', {
+      cantidadRealNueva,
+      cantidadPlanificada: produccion.cantidad_planificada,
+      estaCompletada,
+      estadoBuscado: nombreEstadoBuscado,
+    })
+
+    // Obtener el estado correspondiente ('completada' o 'parcialmente completada')
+    const { data: estadoFinal, error: estadoError } = await supabase
       .from('estado_produccion')
-      .select('id_estado_produccion')
-      .ilike('nombre', '%completada%')
+      .select('id_estado_produccion, nombre')
+      .ilike('nombre', `%${nombreEstadoBuscado}%`)
       .is('deleted_at', null)
+      .limit(1)
       .single()
 
-    if (estadoError || !estadoCompletada) {
+    if (estadoError || !estadoFinal) {
+      console.error('[completarProduccion] 13. Estado no encontrado:', nombreEstadoBuscado, estadoError)
       return {
         success: false,
-        error: 'Estado "completada" no encontrado en el sistema',
+        error: `Estado "${nombreEstadoBuscado}" no encontrado en el sistema`,
       }
     }
+
+    console.log('[completarProduccion] 14. Estado final determinado:', {
+      id: estadoFinal.id_estado_produccion,
+      nombre: estadoFinal.nombre,
+    })
 
     // Obtener o crear el tipo de movimiento 'Consumo Producción'
     let { data: tipoMovimiento, error: tipoMovError } = await supabase
@@ -814,7 +1120,10 @@ export async function completarProduccion(
     // Crear observación legible
     const nombreProyecto = produccion.proyecto?.nombre_del_proyecto || 'Sin nombre'
     const nombreReceta = produccion.receta?.nombre || 'Sin nombre'
-    const observacion = `Producción ${nombreReceta} - Proyecto ${nombreProyecto} - ${fechaFinFinal}`
+    const tipoEntrega = estaCompletada ? 'Completada' : `Parcial ${cantidadRealActual + 1}`
+    const observacion = `Producción ${nombreReceta} - Proyecto ${nombreProyecto} - ${tipoEntrega} - ${fechaFinFinal}`
+
+    console.log('[completarProduccion] 15. Observación creada:', observacion)
 
     // Crear movimientos negativos para descontar stock
     const movimientosData = insumosCalculados.map((insumo) => ({
@@ -838,14 +1147,22 @@ export async function completarProduccion(
       }
     }
 
-    // Actualizar la producción: guardar cantidad_real, cambiar estado y fecha_fin
+    // Actualizar la producción: guardar cantidad_real acumulada, cambiar estado y fecha_fin
+    const updateData: any = {
+      cantidad_real: cantidadRealNueva, // Cantidad acumulada
+      id_estado_produccion: estadoFinal.id_estado_produccion,
+    }
+
+    // Solo actualizar fecha_fin si está completada totalmente
+    if (estaCompletada) {
+      updateData.fecha_fin = fechaFinFinal
+    }
+
+    console.log('[completarProduccion] 16. Actualizando producción:', updateData)
+
     const { error: updateError } = await supabase
       .from('produccion_iseeds')
-      .update({
-        cantidad_real,
-        id_estado_produccion: estadoCompletada.id_estado_produccion,
-        fecha_fin: fechaFinFinal,
-      })
+      .update(updateData)
       .eq('id_produccion', id_produccion)
 
     if (updateError) {
@@ -862,12 +1179,15 @@ export async function completarProduccion(
       }
     }
 
-    // Crear registro en disponibilidad
+    // Crear registro en disponibilidad (solo por la cantidad ingresada)
+    // IMPORTANTE: Cada entrega crea su propio registro de disponibilidad
+    console.log('[completarProduccion] 17. Creando disponibilidad por cantidad ingresada:', cantidadIngresada)
+
     const { error: disponibilidadError } = await supabase
       .from('disponibilidad')
       .insert({
         id_produccion,
-        cantidad: cantidad_real,
+        cantidad: cantidadIngresada, // Solo la cantidad de esta entrega
         fecha_produccion: fechaFinFinal,
       })
 
@@ -882,7 +1202,7 @@ export async function completarProduccion(
       await supabase
         .from('produccion_iseeds')
         .update({
-          cantidad_real: null,
+          cantidad_real: cantidadRealActual, // Revertir al valor anterior
           id_estado_produccion: produccion.id_estado_produccion,
           fecha_fin: produccion.fecha_fin,
         })
@@ -905,6 +1225,17 @@ export async function completarProduccion(
       console.error('Error obteniendo producción actualizada:', getError)
       // La producción se completó correctamente, solo falló al obtenerla
     }
+
+    // Log final de éxito con resumen
+    console.log('[completarProduccion] 18. Producción completada exitosamente:', {
+      cantidadIngresada,
+      cantidadRealNueva,
+      cantidadPlanificada: produccion.cantidad_planificada,
+      estadoFinal: estadoFinal.nombre,
+      estaCompletada,
+      insumosDescontados: insumosCalculados.length,
+      disponibilidadCreada: true,
+    })
 
     // Revalidar rutas
     revalidatePath('/proyectos')

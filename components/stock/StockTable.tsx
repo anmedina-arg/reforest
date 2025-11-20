@@ -22,6 +22,7 @@ import {
 import { Badge } from '@/components/ui/badge'
 import { RegistrarEntradaDialog } from './RegistrarEntradaDialog'
 import { MovimientosDialog } from './MovimientosDialog'
+import { formatCantidadConUnidad } from '@/lib/utils/units'
 import type { StockInsumo, TipoInsumo } from '@/types/entities'
 
 // =====================================================
@@ -134,7 +135,6 @@ export function StockTable({ initialStock, tiposInsumo }: StockTableProps) {
                 <TableHead>Insumo</TableHead>
                 <TableHead>Tipo</TableHead>
                 <TableHead className="text-right">Stock Actual</TableHead>
-                <TableHead>Unidad</TableHead>
                 <TableHead>Estado</TableHead>
                 <TableHead className="text-right">Acciones</TableHead>
               </TableRow>
@@ -142,7 +142,7 @@ export function StockTable({ initialStock, tiposInsumo }: StockTableProps) {
             <TableBody>
               {filteredStock.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={6} className="text-center py-8">
+                  <TableCell colSpan={5} className="text-center py-8">
                     <p className="text-muted-foreground">
                       {searchTerm || tipoFilter !== 'all'
                         ? 'No se encontraron resultados'
@@ -170,15 +170,12 @@ export function StockTable({ initialStock, tiposInsumo }: StockTableProps) {
                       {item.insumo.tipo_insumo?.descripcion_tipo_insumo || '-'}
                     </TableCell>
 
-                    {/* Stock Actual */}
+                    {/* Stock Actual con Unidad */}
                     <TableCell className="text-right">
                       <span className="font-mono font-semibold">
-                        {new Intl.NumberFormat('es-AR').format(item.stock_actual)}
+                        {formatCantidadConUnidad(item.stock_actual, item.unidad_medida)}
                       </span>
                     </TableCell>
-
-                    {/* Unidad */}
-                    <TableCell>{item.unidad_medida}</TableCell>
 
                     {/* Estado */}
                     <TableCell>

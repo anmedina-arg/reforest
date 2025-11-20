@@ -18,6 +18,7 @@ import { Separator } from '@/components/ui/separator'
 
 import { AgregarInsumoDialog } from './AgregarInsumoDialog'
 import { RemoverInsumoDialog } from './RemoverInsumoDialog'
+import { formatCantidadConUnidad } from '@/lib/utils/units'
 
 import type { InsumoEnReceta, InsumoWithRelations } from '@/types/entities'
 
@@ -133,7 +134,6 @@ export function RecetaInsumosList({
                 <TableRow>
                   <TableHead>Insumo</TableHead>
                   <TableHead className="text-right">Cantidad</TableHead>
-                  <TableHead>Unidad</TableHead>
                   {canEdit && <TableHead className="w-[80px]">Acciones</TableHead>}
                 </TableRow>
               </TableHeader>
@@ -151,15 +151,10 @@ export function RecetaInsumosList({
                       </div>
                     </TableCell>
                     <TableCell className="text-right font-mono">
-                      {insumo.cantidad.toLocaleString('es-CL', {
-                        minimumFractionDigits: 0,
-                        maximumFractionDigits: 2,
-                      })}
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant="outline">
-                        {insumo.unidad.abreviatura || insumo.unidad.nombre}
-                      </Badge>
+                      {formatCantidadConUnidad(
+                        insumo.cantidad,
+                        insumo.unidad.abreviatura || insumo.unidad.nombre
+                      )}
                     </TableCell>
                     {canEdit && (
                       <TableCell>
@@ -182,27 +177,19 @@ export function RecetaInsumosList({
               {totalesPorUnidad.length > 0 && (
                 <TableFooter>
                   <TableRow>
-                    <TableCell colSpan={canEdit ? 4 : 3}>
+                    <TableCell colSpan={canEdit ? 3 : 2}>
                       <div className="flex flex-col gap-2 py-2">
                         <Separator className="mb-2" />
                         <div className="flex items-center justify-between">
                           <span className="text-sm font-semibold">Totales por unidad:</span>
                           <div className="flex flex-wrap gap-3 justify-end">
                             {totalesPorUnidad.map((total, idx) => (
-                              <div
-                                key={idx}
-                                className="flex items-center gap-2 text-sm"
-                              >
-                                <span className="font-mono font-semibold">
-                                  {total.total.toLocaleString('es-CL', {
-                                    minimumFractionDigits: 0,
-                                    maximumFractionDigits: 2,
-                                  })}
-                                </span>
-                                <Badge variant="secondary">
-                                  {total.abreviatura || total.unidad}
-                                </Badge>
-                              </div>
+                              <Badge key={idx} variant="secondary" className="font-mono text-sm">
+                                {formatCantidadConUnidad(
+                                  total.total,
+                                  total.abreviatura || total.unidad
+                                )}
+                              </Badge>
                             ))}
                           </div>
                         </div>

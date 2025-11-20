@@ -23,6 +23,7 @@ import {
 import { Badge } from '@/components/ui/badge'
 
 import { getMovimientos } from '@/app/actions/stock'
+import { formatCantidadConUnidad } from '@/lib/utils/units'
 import type { MovimientoWithRelations } from '@/types/entities'
 
 // =====================================================
@@ -155,7 +156,7 @@ export function MovimientosDialog({ open, onOpenChange, insumoId }: MovimientosD
                             variant={esEntrada ? 'success' : esNeutro ? 'secondary' : 'destructive'}
                           >
                             {esEntrada && '+'}
-                            {new Intl.NumberFormat('es-AR').format(cantidad)} {movimiento.unidad_medida || ''}
+                            {formatCantidadConUnidad(Math.abs(cantidad), movimiento.unidad_medida || 'unidad')}
                           </Badge>
                         </TableCell>
 
